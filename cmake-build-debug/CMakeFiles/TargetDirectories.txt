@@ -1,0 +1,4 @@
+D:/University/OS/Lab07/DropBoxClone/cmake-build-debug/CMakeFiles/DropBoxClone.dir
+D:/University/OS/Lab07/DropBoxClone/cmake-build-debug/CMakeFiles/client.dir
+D:/University/OS/Lab07/DropBoxClone/cmake-build-debug/CMakeFiles/edit_cache.dir
+D:/University/OS/Lab07/DropBoxClone/cmake-build-debug/CMakeFiles/rebuild_cache.dir

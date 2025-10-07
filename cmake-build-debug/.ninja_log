@@ -1,0 +1,23 @@
+# ninja log v6
+2	252	7815672077363709	CMakeFiles/DropBoxClone.dir/config.c.obj	8ce6f8032c78556f
+3	16	7815677317311880	clean	e3175a20871aa830
+242	1247	7815677321237831	CMakeFiles/DropBoxClone.dir/queue.c.obj	3ff884da05f02b6a
+285	1248	7815677321665526	CMakeFiles/DropBoxClone.dir/worker.c.obj	46da1b561bd4df0
+261	1255	7815677321425445	CMakeFiles/DropBoxClone.dir/task.c.obj	9cb6f4c8576af4e8
+254	1256	7815677321356145	CMakeFiles/DropBoxClone.dir/user.c.obj	91811c7fe8e2fa40
+276	2579	7815677321578107	CMakeFiles/DropBoxClone.dir/client_handler.c.obj	425456dc3bb909ae
+301	2582	7815677321826812	CMakeFiles/client.dir/client.c.obj	8bfb72dc26b0cb74
+294	2583	7815677321761777	CMakeFiles/DropBoxClone.dir/server.c.obj	b3cec49d9e175be6
+267	2586	7815677321491647	CMakeFiles/DropBoxClone.dir/utils.c.obj	592dc8a899e4ca1a
+2	15	7815680176776593	clean	e3175a20871aa830
+5	297	7815680179907900	CMakeFiles/DropBoxClone.dir/config.c.obj	8ce6f8032c78556f
+14	320	7815680179990753	CMakeFiles/DropBoxClone.dir/queue.c.obj	3ff884da05f02b6a
+21	320	7815680180063059	CMakeFiles/DropBoxClone.dir/user.c.obj	91811c7fe8e2fa40
+51	406	7815680180349633	CMakeFiles/DropBoxClone.dir/worker.c.obj	46da1b561bd4df0
+27	410	7815680180128566	CMakeFiles/DropBoxClone.dir/task.c.obj	9cb6f4c8576af4e8
+41	2019	7815680180263224	CMakeFiles/DropBoxClone.dir/client_handler.c.obj	425456dc3bb909ae
+70	2025	7815680180559245	CMakeFiles/client.dir/client.c.obj	8bfb72dc26b0cb74
+35	2049	7815680180196379	CMakeFiles/DropBoxClone.dir/utils.c.obj	592dc8a899e4ca1a
+63	2054	7815680180491963	CMakeFiles/DropBoxClone.dir/server.c.obj	b3cec49d9e175be6
+2025	3024	7815680200105887	client.exe	8d7dd74e2ee95124
+2054	3031	7815680200397739	DropBoxClone.exe	1486e6762aa119c6
