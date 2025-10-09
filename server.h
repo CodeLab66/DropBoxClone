@@ -5,6 +5,5 @@
 
 void server_init(void);
 int server_main(void);
-static void signal_handler(int sig);
 
 #endif

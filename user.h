@@ -2,14 +2,16 @@
 #define USER_H
 
 #include <pthread.h>
-#include "config.h"  // For MAX_USERS, DEFAULT_QUOTA, ROOT_DIR
+#include <winsock2.h>
+#include "config.h"
 
 typedef struct {
     char username[32];
     char password[32];
     long quota;
     long used;
-    pthread_mutex_t mutex;  // Per-user lock for concurrency
+    pthread_mutex_t mutex;
+    SOCKET sockfd;
 } user_t;
 
 extern user_t users[MAX_USERS];

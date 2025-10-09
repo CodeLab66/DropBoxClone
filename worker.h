@@ -1,11 +1,16 @@
 #ifndef WORKER_H
 #define WORKER_H
 
-#include <pthread.h>
-#include "queue.h"  // For queue_t
-#include "task.h"   // For task_t
+#include "queue.h"
+#include "task.h"
 
-void worker_init(queue_t *task_queue);
+typedef struct {
+    queue_t *task_queue;
+    pthread_t *threads;
+    int num_threads;
+} worker_pool_t;
+
+void worker_init(worker_pool_t *pool, queue_t *task_queue, int num_threads);
 void *worker_thread(void *arg);
 
 #endif

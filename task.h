@@ -2,7 +2,7 @@
 #define TASK_H
 
 #include <pthread.h>
-#include "user.h"  // For user_t
+#include "user.h"
 
 typedef enum {
     TASK_UPLOAD,
@@ -23,7 +23,7 @@ typedef struct task {
     pthread_mutex_t completion_mutex;
     pthread_cond_t completion_cond;
     int done;
-    struct task *next;  // For future linked list
+    struct task *next;
 } task_t;
 
 void task_init(task_t *task);
@@ -33,4 +33,4 @@ void task_process_download(task_t *task);
 void task_process_delete(task_t *task);
 void task_process_list(task_t *task);
 
-#endif /* TASK_H */
+#endif

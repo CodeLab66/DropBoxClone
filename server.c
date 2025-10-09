@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <winsock2.h>
+#include <signal.h>
 #include "queue.h"
 #include "client_handler.h"
 #include "worker.h"
@@ -31,23 +32,32 @@ int server_main(void) {
     queue_init(&task_queue);
 
     pthread_t client_threads[NUM_CLIENT_THREADS];
-    pthread_t worker_threads[NUM_WORKER_THREADS];
 
+    // Initialize client handler
     client_handler_init(&client_queue, &task_queue);
-    worker_init(&task_queue);
 
+    // Create client threads
     for (int i = 0; i < NUM_CLIENT_THREADS; i++) {
-        pthread_create(&client_threads[i], NULL, client_handler_thread, NULL);
+        if (pthread_create(&client_threads[i], NULL, client_handler_thread, NULL) != 0) {
+            printf("Failed to create client thread %d\n", i);
+            exit(1);
+        }
     }
-    for (int i = 0; i < NUM_WORKER_THREADS; i++) {
-        pthread_create(&worker_threads[i], NULL, worker_thread, NULL);
-    }
+
+    // Initialize worker pool
+    worker_pool_t worker_pool;
+    worker_init(&worker_pool, &task_queue, NUM_WORKER_THREADS);
 
     SOCKET server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == INVALID_SOCKET) {
         printf("Socket creation failed: %d\n", WSAGetLastError());
         WSACleanup();
         return 1;
+    }
+
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == SOCKET_ERROR) {
+        printf("Setsockopt failed: %d\n", WSAGetLastError());
     }
 
     struct sockaddr_in addr = {0};
@@ -78,30 +88,50 @@ int server_main(void) {
         int addr_len = sizeof(client_addr);
         SOCKET client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
         if (client_fd == INVALID_SOCKET) {
-            printf("Accept failed: %d\n", WSAGetLastError());
+            if (running) {
+                printf("Accept failed: %d\n", WSAGetLastError());
+            }
             continue;
         }
+
+        printf("New client connected\n");
         int *sockfd_ptr = malloc(sizeof(int));
         *sockfd_ptr = client_fd;
         queue_enqueue(&client_queue, sockfd_ptr);
     }
 
     printf("Shutting down server...\n");
+
+    // Signal client threads to exit
     for (int i = 0; i < NUM_CLIENT_THREADS; i++) {
         int *exit_signal = malloc(sizeof(int));
         *exit_signal = -1;
         queue_enqueue(&client_queue, exit_signal);
-        pthread_join(client_threads[i], NULL);
     }
+
+    // Signal worker threads to exit
     for (int i = 0; i < NUM_WORKER_THREADS; i++) {
         queue_enqueue(&task_queue, NULL);
-        pthread_join(worker_threads[i], NULL);
     }
+
+    // Wait for client threads to finish
+    for (int i = 0; i < NUM_CLIENT_THREADS; i++) {
+        pthread_join(client_threads[i], NULL);
+    }
+
+    // Wait for worker threads to finish
+    for (int i = 0; i < NUM_WORKER_THREADS; i++) {
+        pthread_join(worker_pool.threads[i], NULL);
+    }
+
+    // Cleanup
+    free(worker_pool.threads);
     queue_destroy(&client_queue);
     queue_destroy(&task_queue);
     closesocket(server_fd);
     WSACleanup();
 
+    printf("Server shutdown complete\n");
     return 0;
 }
 
