@@ -44,13 +44,14 @@ Follow these steps to set up and run the DropBoxClone project:
 
     The project likely contains client and server components.  Refer to the source code and related documentation (if available) to understand how to configure the connection parameters (e.g., server address, port number).
 
-## Usage Examples & API Documentation
+## Commands
 
-Due to the lack of detailed documentation in the repository, the best way to understand usage is to examine the source code directly.  Look for entry point functions (`main()`) in the client and server components.
-
-**API Documentation:**
-
-No formal API documentation is available at this time. Inspect the source code, specifically function definitions, to understand the interactions between modules.
+* **UPLOAD** - Upload a file to server
+* **DOWNLOAD** - Download a file from server to clients Downloads folder
+* **LIST** - Show all the files of a user on server
+* **DELETE** - Delete a file from the server
+* **SIGNUP** - Register a new user
+* **LOGIN** - Login to Dropbox clone using existing user credentials.
 
 ## Configuration Options
 
