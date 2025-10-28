@@ -8,6 +8,6 @@
 #define BUFFER_SIZE 1024
 #define MAX_USERS 100
 #define DEFAULT_QUOTA 1048576L  // 1MB in bytes
-#define ROOT_DIR "data"
+#define ROOT_DIR "server_storage"
 
 #endif

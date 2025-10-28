@@ -8,10 +8,11 @@
 #include <windows.h>
 
 int send_response(int sockfd, const char *response) {
-    if (sockfd < 0 || response == NULL) return -1;
-    ssize_t total = 0, len = strlen(response);
+    if (sockfd == INVALID_SOCKET || response == NULL) return -1;
+    int total = 0;
+    int len = (int)strlen(response);
     while (total < len) {
-        ssize_t sent = send(sockfd, response + total, len - total, 0);
+        int sent = send(sockfd, response + total, len - total, 0);
         if (sent <= 0) return -1;
         total += sent;
     }
@@ -32,8 +33,12 @@ char *read_file(const char *username, const char *filename, long *size) {
         fclose(file);
         return NULL;
     }
-    fread(buffer, 1, file_size, file);
+    size_t read = fread(buffer, 1, file_size, file);
     fclose(file);
+    if ((long)read != file_size) {
+        free(buffer);
+        return NULL;
+    }
     *size = file_size;
     return buffer;
 }
@@ -47,7 +52,7 @@ int write_file(const char *username, const char *filename, const char *data, lon
     if (file == NULL) return -1;
     size_t written = fwrite(data, 1, size, file);
     fclose(file);
-    return (written == size) ? 0 : -1;
+    return (written == (size_t)size) ? 0 : -1;
 }
 
 int delete_file(const char *username, const char *filename) {
@@ -61,34 +66,43 @@ int delete_file(const char *username, const char *filename) {
 }
 
 char *list_files(const char *username) {
-    if (username == NULL) return NULL;
-    char dir_path[BUFFER_SIZE];
-    snprintf(dir_path, sizeof(dir_path), "%s/%s/*", ROOT_DIR, username);
-    WIN32_FIND_DATA find_data;
-    HANDLE hFind = FindFirstFile(dir_path, &find_data);
-    if (hFind == INVALID_HANDLE_VALUE) {
-        return strdup("ERROR No files found or directory error\n");
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s/*", ROOT_DIR, username);
+
+    struct _finddata_t fileinfo;
+    intptr_t handle = _findfirst(path, &fileinfo);
+    if (handle == -1) {
+        char *msg = malloc(128);
+        strcpy(msg, "OK Files in storage:\n(Empty)\n");
+        return msg;
     }
-    char *result = malloc(BUFFER_SIZE);
-    if (result == NULL) {
-        FindClose(hFind);
+
+    // Allocate large dynamic buffer and track length
+    size_t capacity = 8192;
+    size_t length = 0;
+    char *list = malloc(capacity);
+    if (!list) {
+        _findclose(handle);
         return NULL;
     }
-    size_t remaining = BUFFER_SIZE - 1;
-    snprintf(result, BUFFER_SIZE, "OK Files in %s's storage:\n", username);
-    remaining -= strlen(result);
+
+    length += snprintf(list + length, capacity - length, "OK Files in storage:\n");
+
     do {
-        if (!(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            strncat(result, "- ", remaining);
-            remaining -= 2;
-            strncat(result, find_data.cFileName, remaining);
-            remaining -= strlen(find_data.cFileName);
-            strncat(result, "\n", remaining);
-            remaining -= 1;
-            if (remaining <= 10) break;  // Safety to prevent overflow
+        if (!(fileinfo.attrib & _A_SUBDIR)) {
+            size_t needed = strlen(fileinfo.name) + 4; // "- name\n"
+            if (length + needed + 1 >= capacity) {
+                capacity *= 2;
+                char *newptr = realloc(list, capacity);
+                if (!newptr) break;
+                list = newptr;
+            }
+            length += snprintf(list + length, capacity - length, "- %s\n", fileinfo.name);
         }
-    } while (FindNextFile(hFind, &find_data));
-    FindClose(hFind);
-    strncat(result, "END\n", remaining);
-    return result;
+    } while (_findnext(handle, &fileinfo) == 0);
+
+    _findclose(handle);
+
+    return list;
 }
+

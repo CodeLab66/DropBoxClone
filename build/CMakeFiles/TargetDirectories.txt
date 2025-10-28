@@ -1,0 +1,4 @@
+D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/DropBoxClone.dir
+D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/client.dir
+D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/ALL_BUILD.dir
+D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/ZERO_CHECK.dir

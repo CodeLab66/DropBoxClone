@@ -25,6 +25,7 @@ static void signal_handler(int sig) {
 }
 
 int server_main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);  // disable output buffering
     server_init();
 
     queue_t client_queue, task_queue;

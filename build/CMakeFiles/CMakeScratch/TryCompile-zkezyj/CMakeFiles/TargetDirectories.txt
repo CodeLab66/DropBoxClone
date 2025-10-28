@@ -1,2 +1,0 @@
-D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/CMakeScratch/TryCompile-zkezyj/CMakeFiles/cmTC_2b4cf.dir
-D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/CMakeScratch/TryCompile-zkezyj/CMakeFiles/ALL_BUILD.dir

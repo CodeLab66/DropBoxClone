@@ -1,158 +1,209 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "client.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "config.h"
-#include <winsock2.h>
 
-int client_run(void) {
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        printf("WSAStartup failed: %d\n", WSAGetLastError());
-        return 1;
+#define BUFFER_SIZE CLIENT_BUFFER_SIZE
+
+int init_winsock() {
+    WSADATA w;
+    return (WSAStartup(MAKEWORD(2,2), &w) == 0);
+}
+void cleanup_winsock() { WSACleanup(); }
+
+SOCKET create_connection() {
+    SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == INVALID_SOCKET) return INVALID_SOCKET;
+
+    struct sockaddr_in srv;
+    srv.sin_family = AF_INET;
+    srv.sin_port = htons(SERVER_PORT);
+    srv.sin_addr.s_addr = inet_addr(SERVER_IP);
+
+    if (connect(s, (struct sockaddr*)&srv, sizeof(srv)) == SOCKET_ERROR) {
+        closesocket(s);
+        return INVALID_SOCKET;
+    }
+    return s;
+}
+
+/* send_all: ensure full send */
+int send_all(SOCKET sock, const char *data, int len) {
+    int total = 0, bytesleft = len, n;
+    while (total < len) {
+        n = send(sock, data + total, bytesleft, 0);
+        if (n == SOCKET_ERROR) return SOCKET_ERROR;
+        total += n;
+        bytesleft -= n;
+    }
+    return total;
+}
+
+/* recv_line: read until newline */
+int recv_line(SOCKET sock, char *buf, int maxlen) {
+    int i = 0;
+    char c;
+    int n;
+    while (i < maxlen - 1) {
+        n = recv(sock, &c, 1, 0);
+        if (n <= 0) return n;
+        buf[i++] = c;
+        if (c == '\n') break;
+    }
+    buf[i] = '\0';
+    return i;
+}
+
+/* Upload a file to server */
+void upload_file(SOCKET sock, const char *localpath, const char *remote_filename) {
+    FILE *fp = fopen(localpath, "rb");
+    if (!fp) {
+        printf("Local file not found: %s\n", localpath);
+        return;
     }
 
-    SOCKET client_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_fd == INVALID_SOCKET) {
-        printf("Socket creation failed: %d\n", WSAGetLastError());
-        WSACleanup();
-        return 1;
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "UPLOAD %s\n", remote_filename);
+    if (send_all(sock, cmd, (int)strlen(cmd)) == SOCKET_ERROR) {
+        fclose(fp);
+        printf("Send failed\n");
+        return;
     }
-
-    struct sockaddr_in server_addr = {0};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    server_addr.sin_port = htons(PORT);
-
-    if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
-        printf("Connection failed: %d\n", WSAGetLastError());
-        closesocket(client_fd);
-        WSACleanup();
-        return 1;
-    }
-
-    printf("Connected to server at port %d\n", PORT);
-    printf("Available commands:\n");
-    printf("  SIGNUP <username> <password>\n");
-    printf("  LOGIN <username> <password>\n");
-    printf("  LIST\n");
-    printf("  UPLOAD <local_filename>\n");
-    printf("  EXIT\n\n");
 
     char buffer[BUFFER_SIZE];
+    long sent = 0;
+    while (!feof(fp)) {
+        size_t n = fread(buffer, 1, sizeof(buffer), fp);
+        if (n > 0) {
+            if (send_all(sock, buffer, (int)n) == SOCKET_ERROR) {
+                printf("Send data failed\n");
+                break;
+            }
+            sent += n;
+        } else break;
+    }
+    fclose(fp);
+
+    // Read server confirmation
+    char line[128];
+    if (recv_line(sock, line, sizeof(line)) > 0) {
+        printf("%s", line);
+    }
+    printf("Uploaded: %ld bytes\n", sent);
+}
+
+
+/* Main interactive client loop */
+void client_loop(SOCKET sock) {
+    printf("Connected to server %s:%d\n", SERVER_IP, SERVER_PORT);
+
     while (1) {
-        printf("> ");
+        printf("client>");
         fflush(stdout);
 
-        if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) break;
+        char input[BUFFER_SIZE];
+        if (!fgets(input, sizeof(input), stdin))
+            break;
 
-        buffer[strcspn(buffer, "\n")] = 0;
+        input[strcspn(input, "\n")] = 0; // remove newline
+        if (strlen(input) == 0)
+            continue;
 
-        if (strcmp(buffer, "EXIT") == 0) {
-            send(client_fd, buffer, strlen(buffer), 0);
+        // ✅ only send once (no extra newline)
+        send_all(sock, input, (int)strlen(input));
+
+        // Receive first response
+        char resp[BUFFER_SIZE];
+        int r = recv_line(sock, resp, sizeof(resp));
+        if (r <= 0) {
+            printf("Server disconnected or error\n");
             break;
         }
 
-        if (strlen(buffer) == 0) {
+        /* ---------- LIST Handling ---------- */
+        if (strncmp(input, "LIST", 4) == 0) {
+            printf("%s", resp);
+            while (1) {
+                r = recv_line(sock, resp, sizeof(resp));
+                if (r <= 0)
+                    break;
+                if (strcmp(resp, "END\n") == 0)
+                    break;
+                printf("%s", resp);
+            }
             continue;
         }
 
-        if (send(client_fd, buffer, strlen(buffer), 0) == SOCKET_ERROR) {
-            printf("Send failed: %d\n", WSAGetLastError());
+        /* ---------- DOWNLOAD Handling ---------- */
+        if (strncmp(input, "DOWNLOAD", 8) == 0) {
+            if (strncmp(resp, "SIZE", 4) == 0) {
+                long size = atol(resp + 5);
+                if (size <= 0) {
+                    printf("Invalid file size from server\n");
+                    continue;
+                }
+
+                char filename[256];
+                sscanf(input, "%*s %255s", filename);
+                if (strlen(filename) == 0)
+                    strcpy(filename, "downloaded_file.txt");
+
+                FILE *fp = fopen(filename, "wb");
+                if (!fp) {
+                    printf("Error creating local file %s\n", filename);
+                    continue;
+                }
+
+                send_all(sock, "READY\n", 6);
+
+                long received = 0;
+                char buf[8192];
+                while (received < size) {
+                    int bytes = recv(sock, buf, sizeof(buf), 0);
+                    if (bytes <= 0)
+                        break;
+                    fwrite(buf, 1, bytes, fp);
+                    received += bytes;
+                }
+                fclose(fp);
+
+                printf("Downloaded %ld bytes to %s\n", received, filename);
+
+                r = recv_line(sock, resp, sizeof(resp));
+                if (r > 0)
+                    printf("%s", resp);
+            } else {
+                printf("%s", resp);
+            }
+            continue;
+        }
+
+        /* ---------- Default ---------- */
+        printf("%s", resp);
+
+        if (strncmp(input, "EXIT", 4) == 0)
             break;
-        }
-
-        if (strncmp(buffer, "UPLOAD ", 7) == 0) {
-            // Special handling for UPLOAD
-            char response[BUFFER_SIZE] = {0};
-            int bytes_received = recv(client_fd, response, BUFFER_SIZE - 1, 0);
-            if (bytes_received <= 0) {
-                printf("Receive failed or connection closed\n");
-                break;
-            }
-            response[bytes_received] = 0;
-            printf("Server: %s", response);
-            if (strcmp(response, "SEND_SIZE\n") != 0) {
-                continue;
-            }
-            // Extract filename
-            char filename[256] = {0};
-            sscanf(buffer + 7, "%255s", filename);
-            FILE *file = fopen(filename, "rb");
-            if (!file) {
-                printf("Local file open failed: %s\n", filename);
-                continue;
-            }
-            fseek(file, 0, SEEK_END);
-            long size = ftell(file);
-            rewind(file);
-            char size_buf[32];
-            snprintf(size_buf, sizeof(size_buf), "%ld\n", size);
-            if (send(client_fd, size_buf, strlen(size_buf), 0) == SOCKET_ERROR) {
-                fclose(file);
-                printf("Send size failed\n");
-                break;
-            }
-            memset(response, 0, BUFFER_SIZE);
-            bytes_received = recv(client_fd, response, BUFFER_SIZE - 1, 0);
-            if (bytes_received <= 0) {
-                fclose(file);
-                printf("Receive failed\n");
-                break;
-            }
-            response[bytes_received] = 0;
-            printf("Server: %s", response);
-            if (strcmp(response, "SEND_DATA\n") != 0) {
-                fclose(file);
-                continue;
-            }
-            char *data = malloc(size);
-            if (!data) {
-                fclose(file);
-                printf("Memory allocation failed\n");
-                continue;
-            }
-            fread(data, 1, size, file);
-            fclose(file);
-            long sent = 0;
-            while (sent < size) {
-                int bytes_sent = send(client_fd, data + sent, size - sent, 0);
-                if (bytes_sent <= 0) break;
-                sent += bytes_sent;
-            }
-            free(data);
-            if (sent != size) {
-                printf("File send incomplete\n");
-                continue;
-            }
-            // Receive final response
-            memset(response, 0, BUFFER_SIZE);
-            bytes_received = recv(client_fd, response, BUFFER_SIZE - 1, 0);
-            if (bytes_received <= 0) {
-                printf("Receive failed\n");
-                break;
-            }
-            response[bytes_received] = 0;
-            printf("Server: %s", response);
-        } else {
-            // Normal response handling for other commands
-            char response[BUFFER_SIZE] = {0};
-            int bytes_received = recv(client_fd, response, BUFFER_SIZE - 1, 0);
-            if (bytes_received <= 0) {
-                printf("Receive failed or connection closed\n");
-                break;
-            }
-            response[bytes_received] = 0;
-            printf("Server: %s", response);
-        }
     }
-
-    closesocket(client_fd);
-    WSACleanup();
-    printf("Client shutdown complete\n");
-    return 0;
 }
 
+/* Entry point */
 int main() {
-    return client_run();
+    if (!init_winsock()) {
+        printf("WSAStartup failed\n");
+        return 1;
+    }
+
+    SOCKET s = create_connection();
+    if (s == INVALID_SOCKET) {
+        printf("Failed to connect to server\n");
+        cleanup_winsock();
+        return 1;
+    }
+
+    client_loop(s);
+
+    closesocket(s);
+    cleanup_winsock();
+    return 0;
 }

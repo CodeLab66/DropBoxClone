@@ -1,8 +1,8 @@
-# Install script for directory: D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/CMakeScratch/TryCompile-zkezyj
+# Install script for directory: D:/University/OS/Lab07/DropBoxClone
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "C:/Program Files (x86)/CMAKE_TRY_COMPILE")
+  set(CMAKE_INSTALL_PREFIX "C:/Program Files (x86)/DropBoxClone")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -40,5 +40,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "D:/University/OS/Lab07/DropBoxClone/build/CMakeFiles/CMakeScratch/TryCompile-zkezyj/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "D:/University/OS/Lab07/DropBoxClone/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
