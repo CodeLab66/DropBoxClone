@@ -147,11 +147,15 @@ void client_loop(SOCKET sock) {
                 char filename[256];
                 sscanf(input, "%*s %255s", filename);
                 if (strlen(filename) == 0)
-                    strcpy(filename, "downloaded_file.txt");
+                    strcpy(filename, "Downloaded_file.txt");
 
-                FILE *fp = fopen(filename, "wb");
+                char path[512];
+                _snprintf(path, sizeof(path), "Downloads/%s", filename);
+                printf("Saving to: %s\n", path);
+                FILE *fp = fopen(path, "wb");
+
                 if (!fp) {
-                    printf("Error creating local file %s\n", filename);
+                    printf("Error creating local file %s\n", path);
                     continue;
                 }
 
@@ -168,7 +172,7 @@ void client_loop(SOCKET sock) {
                 }
                 fclose(fp);
 
-                printf("Downloaded %ld bytes to %s\n", received, filename);
+                printf("Downloaded %ld bytes to %s\n", received, path);
 
                 r = recv_line(sock, resp, sizeof(resp));
                 if (r > 0)

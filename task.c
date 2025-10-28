@@ -37,9 +37,7 @@ int recv_line(SOCKET sock, char *buf, int maxlen) {
     return i;
 }
 
-/* --- Existing socket-based handle_* kept (no change) --- */
-/* These are useful if any other part of your code calls them.
-   But they will not be used by the worker threads in the task-based flow. */
+
 static void sanitize_filename_local(char *out, const char *in, size_t n) {
     const char *p1 = strrchr(in, '\\');
     const char *p2 = strrchr(in, '/');
@@ -66,114 +64,144 @@ static void ensure_user_dir_local(const char *username, char *out_dir, size_t n)
 
 
 void task_process_upload(task_t *task) {
-    if (!task || !task->user || !task->filename || !task->data || task->size <= 0) {
-        if (task) strncpy(task->result_status, "ERROR Invalid upload task\n", sizeof(task->result_status)-1);
-        return;
-    }
-
-    /* write to disk using utils */
-    int wres = write_file(task->user->username, task->filename, task->data, task->size);
-    if (wres == 0) {
-        /* update user's used quota */
-        user_update_used(task->user, task->size);
-        strncpy(task->result_status, "OK Upload successful\n", sizeof(task->result_status)-1);
-    } else {
-        strncpy(task->result_status, "ERROR Saving file\n", sizeof(task->result_status)-1);
-    }
-
-    /* worker no longer needs the data buffer after saving */
-    free(task->data);
-    task->data = NULL;
-    task->size = 0;
-}
-
-void task_process_download(task_t *task) {
-    if (!task || !task->user || strlen(task->filename) == 0) {
-        strncpy(task->result_status, "ERROR Invalid download task\n",
+    if (!task || !task->user || strlen(task->filename) == 0 ||
+        !task->data || task->size <= 0) {
+        strncpy(task->result_status, "ERROR Invalid upload task\n",
                 sizeof(task->result_status) - 1);
         return;
-    }
+        }
+
+    char userdir[512];
+    snprintf(userdir, sizeof(userdir), "%s/%s", ROOT_DIR, task->user->username);
+    _mkdir(ROOT_DIR);   // ensure base dir exists
+    _mkdir(userdir);    // ensure user folder exists
 
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s/%s",
              ROOT_DIR, task->user->username, task->filename);
 
-    FILE *fp = fopen(filepath, "rb");
+    FILE *fp = fopen(filepath, "wb");
     if (!fp) {
         snprintf(task->result_status, sizeof(task->result_status),
-                 "ERROR File not found: %s\n", task->filename);
+                 "ERROR Saving file\n");
         task->data = NULL;
         task->size = 0;
         return;
     }
 
-    // Get file size
-    fseek(fp, 0, SEEK_END);
-    long size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    if (size <= 0) {
-        fclose(fp);
-        strncpy(task->result_status, "ERROR Empty file\n",
-                sizeof(task->result_status) - 1);
-        task->data = NULL;
-        task->size = 0;
-        return;
-    }
-
-    // Allocate memory and read file
-    task->data = malloc(size);
-    if (!task->data) {
-        fclose(fp);
-        strncpy(task->result_status, "ERROR Memory allocation failed\n",
-                sizeof(task->result_status) - 1);
-        task->size = 0;
-        return;
-    }
-
-    size_t read_bytes = fread(task->data, 1, size, fp);
+    size_t written = fwrite(task->data, 1, task->size, fp);
     fclose(fp);
 
-    if (read_bytes != size) {
-        free(task->data);
+    if (written != (size_t)task->size) {
+        snprintf(task->result_status, sizeof(task->result_status),
+                 "ERROR File write incomplete\n");
         task->data = NULL;
         task->size = 0;
-        strncpy(task->result_status, "ERROR Reading file\n",
-                sizeof(task->result_status) - 1);
         return;
     }
 
-    task->size = size;
-    strncpy(task->result_status, "OK File ready for download\n",
-            sizeof(task->result_status) - 1);
+    // Update user’s quota usage
+    pthread_mutex_lock(&task->user->mutex);
+    task->user->used += task->size;
+    pthread_mutex_unlock(&task->user->mutex);
+
+    snprintf(task->result_status, sizeof(task->result_status),
+             "OK Upload successful\n");
 }
+
+
+void task_process_download(task_t *task) {
+    if (!task || !task->user || strlen(task->filename) == 0) {
+        if (task)
+            strncpy(task->result_status, "ERROR Invalid download task\n", sizeof(task->result_status) - 1);
+        return;
+    }
+
+    // Build full file path
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/%s/%s", ROOT_DIR, task->user->username, task->filename);
+
+    FILE *fp = fopen(filepath, "rb");
+    if (!fp) {
+        snprintf(task->result_status, sizeof(task->result_status), "ERROR File not found: %s\n", task->filename);
+        task->data = NULL;
+        task->size = 0;
+        return;
+    }
+
+    // Determine file size safely
+    fseek(fp, 0, SEEK_END);
+    long filesize = ftell(fp);
+    rewind(fp);
+
+    if (filesize <= 0) {
+        fclose(fp);
+        snprintf(task->result_status, sizeof(task->result_status), "ERROR Empty or invalid file\n");
+        task->data = NULL;
+        task->size = 0;
+        return;
+    }
+
+    // Allocate buffer for the file content
+    task->data = malloc(filesize);
+    if (!task->data) {
+        fclose(fp);
+        snprintf(task->result_status, sizeof(task->result_status), "ERROR Memory allocation failed\n");
+        task->size = 0;
+        return;
+    }
+
+    // Read file content into allocated memory
+    size_t read_bytes = fread(task->data, 1, filesize, fp);
+    fclose(fp);
+
+    if (read_bytes != (size_t)filesize) {
+        free(task->data);
+        task->data = NULL;
+        snprintf(task->result_status, sizeof(task->result_status), "ERROR Reading file\n");
+        task->size = 0;
+        return;
+    }
+
+    // Everything OK
+    task->size = filesize;
+    snprintf(task->result_status, sizeof(task->result_status), "OK File ready\n");
+}
+
 
 
 void task_process_delete(task_t *task) {
     if (!task || !task->user || strlen(task->filename) == 0) {
-        strncpy(task->result_status, "ERROR Invalid delete task\n",
+        if (task)
+            strncpy(task->result_status, "ERROR Invalid delete task\n",
+                    sizeof(task->result_status) - 1);
+        return;
+    }
+
+    size_t path_len = strlen(ROOT_DIR) + strlen(task->user->username) + strlen(task->filename) + 4;
+    char *filepath = malloc(path_len);
+    if (!filepath) {
+        strncpy(task->result_status, "ERROR Memory allocation failed\n",
                 sizeof(task->result_status) - 1);
         return;
     }
 
-    char filepath[512];
-    snprintf(filepath, sizeof(filepath), "%s/%s/%s",
-             ROOT_DIR, task->user->username, task->filename);
+    snprintf(filepath, path_len, "%s/%s/%s", ROOT_DIR, task->user->username, task->filename);
 
-    // Explicitly set task->data NULL to avoid double-free later
-    task->data = NULL;
-    task->size = 0;
-
+    // Try to delete the file
     if (remove(filepath) == 0) {
         snprintf(task->result_status, sizeof(task->result_status),
                  "OK File deleted successfully\n");
-        printf("File deleted: %s\n", filepath);
     } else {
         snprintf(task->result_status, sizeof(task->result_status),
                  "ERROR Unable to delete file: %s\n", task->filename);
-        perror("Delete failed");
     }
+
+    free(filepath);
+    task->data = NULL;
+    task->size = 0;
 }
+
 
 
 
@@ -225,13 +253,11 @@ void task_init(task_t *task) {
 
 void task_destroy(task_t *task) {
     if (!task) return;
-
-    // Safely free data only if allocated
-    if (task->data) {
+    /*if (task->data) {
         free(task->data);
         task->data = NULL;
-    }
-
+    }*/
     pthread_mutex_destroy(&task->completion_mutex);
     pthread_cond_destroy(&task->completion_cond);
 }
+

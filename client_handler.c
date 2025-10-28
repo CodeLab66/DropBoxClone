@@ -114,69 +114,91 @@ void *client_handler_thread(void *arg) {
                         send_response(sockfd, "ERROR Invalid login format\n");
                     }
                 } else if (strcmp(command, "UPLOAD") == 0) {
-                        current_user = get_user_by_socket(sockfd);
-                        if (current_user == NULL) {
-                            send_response(sockfd, "ERROR Please login first\n");
-                            continue;
+                    current_user = get_user_by_socket(sockfd);
+                    if (current_user == NULL) {
+                        send_response(sockfd, "ERROR Please login first\n");
+                        continue;
+                    }
+                    if (strlen(arg1) == 0) {
+                        send_response(sockfd, "ERROR Invalid upload format\n");
+                        continue;
+                    }
+
+                    // Direct upload (no SEND_SIZE/SEND_DATA handshake)
+                    send_response(sockfd, "OK Ready to receive file\n");
+
+                    char buffer[BUFFER_SIZE];
+                    size_t capacity = BUFFER_SIZE;
+                    char *data = malloc(capacity);
+                    if (!data) {
+                        send_response(sockfd, "ERROR Memory allocation failed\n");
+                        continue;
+                    }
+
+                    long total_received = 0;
+                    int bytes_received;
+
+                    // Receive until client finishes sending
+                    while ((bytes_received = recv(sockfd, buffer, sizeof(buffer), 0)) > 0) {
+                        // Expand buffer dynamically if needed
+                        if (total_received + bytes_received > capacity) {
+                            capacity *= 2;
+                            char *new_data = realloc(data, capacity);
+                            if (!new_data) {
+                                free(data);
+                                send_response(sockfd, "ERROR Out of memory\n");
+                                goto upload_cleanup;
+                            }
+                            data = new_data;
                         }
-                        if (strlen(arg1) == 0) {
-                            send_response(sockfd, "ERROR Invalid upload format\n");
-                            continue;
-                        }
 
-                        // Direct upload (no SEND_SIZE/SEND_DATA handshake)
-                        send_response(sockfd, "OK Ready to receive file\n");
+                        memcpy(data + total_received, buffer, bytes_received);
+                        total_received += bytes_received;
 
-                        // Receive file data directly from client
-                        char buffer[BUFFER_SIZE];
-                        char *data = malloc(BUFFER_SIZE * 10); // temporary buffer for data
-                        if (!data) {
-                            send_response(sockfd, "ERROR Memory allocation failed\n");
-                            continue;
-                        }
+                        // Optional break condition: stop if file ends or client stops sending
+                        if (bytes_received < sizeof(buffer))
+                            break;
+                    }
 
-                        long total_received = 0;
-                        int bytes_received;
+                    if (total_received == 0) {
+                        send_response(sockfd, "ERROR Empty upload\n");
+                        free(data);
+                        continue;
+                    }
 
-                        // Receive until client stops sending (or socket closes)
-                        while ((bytes_received = recv(sockfd, buffer, sizeof(buffer), 0)) > 0) {
-                            memcpy(data + total_received, buffer, bytes_received);
-                            total_received += bytes_received;
-                            if (bytes_received < sizeof(buffer)) break; // assume file ended
-                        }
+                    // Resize to fit actual data
+                    data = realloc(data, total_received + 1);
+                    if (data) data[total_received] = '\0';
 
-                        if (total_received == 0) {
-                            send_response(sockfd, "ERROR Empty upload\n");
-                            free(data);
-                            continue;
-                        }
+                    // Create a new upload task for worker thread
+                    task_t *task = malloc(sizeof(task_t));
+                    task_init(task);
+                    task->type = TASK_UPLOAD;
+                    task->user = current_user;
+                    strncpy(task->filename, arg1, sizeof(task->filename) - 1);
+                    task->filename[sizeof(task->filename) - 1] = '\0';
+                    task->data = data;
+                    task->size = total_received;
 
-                        // Create a task for worker
-                        task_t *task = malloc(sizeof(task_t));
-                        task_init(task);
-                        task->type = TASK_UPLOAD;
-                        task->user = current_user;
-                        strncpy(task->filename, arg1, sizeof(task->filename) - 1);
-                        task->filename[sizeof(task->filename) - 1] = '\0';
-                        task->data = data;
-                        task->size = total_received;
+                    queue_enqueue(task_queue, task);
 
-                        queue_enqueue(task_queue, task);
+                    // Wait for worker to complete
+                    pthread_mutex_lock(&task->completion_mutex);
+                    while (!task->done) {
+                        pthread_cond_wait(&task->completion_cond, &task->completion_mutex);
+                    }
+                    pthread_mutex_unlock(&task->completion_mutex);
 
-                        // Wait for worker to complete
-                        pthread_mutex_lock(&task->completion_mutex);
-                        while (!task->done) {
-                            pthread_cond_wait(&task->completion_cond, &task->completion_mutex);
-                        }
-                        pthread_mutex_unlock(&task->completion_mutex);
+                    send_response(sockfd, task->result_status);
+                    printf("Upload completed for file: %s by user: %s (%ld bytes)\n",
+                           arg1, current_user->username, total_received);
 
-                        send_response(sockfd, task->result_status);
-                        printf("Upload completed for file: %s by user: %s (%ld bytes)\n",
-                               arg1, current_user->username, total_received);
+                    task_destroy(task);
+                    free(task);
 
-                        task_destroy(task);
-                        free(task);
-                    } else if (strcmp(command, "DOWNLOAD") == 0) {
+                upload_cleanup:
+                    continue;
+                } else if (strcmp(command, "DOWNLOAD") == 0) {
                         current_user = get_user_by_socket(sockfd);
                         if (current_user == NULL) {
                             send_response(sockfd, "ERROR Please login first\n");
